@@ -4,190 +4,154 @@ import numpy as np
 import plotly.express as px
 
 # =====================================================
-# PAGE
+# CONFIG
 # =====================================================
 
-st.set_page_config(layout="wide")
+st.set_page_config(
+    page_title="BTC Predictor Research",
+    layout="wide"
+)
 
-st.title("BTC Predictor Dashboard")
+# =====================================================
+# LOAD DATA
+# =====================================================
+
+@st.cache_data
+def load_data():
+    df = pd.read_parquet("crypto_dataset/btc_global_index.parquet")
+    df["bucket"] = pd.to_datetime(df["bucket"])
+    return df
+
+# =====================================================
+# APP
+# =====================================================
+
+st.title("BTC Predictor Research Dashboard")
 
 st.markdown("""
-Dieses Dashboard analysiert kurzfristige Bitcoin Preisbewegungen.
+Analyse der Bitcoin Preisbewegungen für ein 5-Minuten Richtungsmodell.
 """)
 
+df = load_data()
+
 # =====================================================
-# FAKE MARKET DATA
+# FILTER
 # =====================================================
 
-np.random.seed(42)
+sample = st.sidebar.selectbox("Sample", ["1 day", "7 days", "30 days"])
 
-n = 5000
+if sample == "1 day":
+    cutoff = df["bucket"].max() - pd.Timedelta(days=1)
+elif sample == "7 days":
+    cutoff = df["bucket"].max() - pd.Timedelta(days=7)
+else:
+    cutoff = df["bucket"].max() - pd.Timedelta(days=30)
 
-timestamps = pd.date_range(
-    end=pd.Timestamp.now(),
-    periods=n,
-    freq="1s"
-)
-
-returns = np.random.normal(
-    0,
-    0.0002,
-    n
-)
-
-prices = 100000 * (1 + returns).cumprod()
-
-df = pd.DataFrame({
-    "timestamp": timestamps,
-    "price": prices
-})
+df = df[df["bucket"] >= cutoff].copy()
 
 # =====================================================
 # FEATURES
 # =====================================================
 
-df["return_1s"] = df["price"].pct_change()
+df = df.sort_values("bucket")
 
-df["momentum_30s"] = (
-    df["price"].pct_change(30)
-)
-
-df["volatility_60s"] = (
-    df["return_1s"]
-    .rolling(60)
-    .std()
-)
-
-future_return = (
-    df["price"].shift(-300)
-    / df["price"]
-    - 1
-)
-
-df["future_up"] = (
-    future_return > 0
-).astype(int)
+df["return_1s"] = df["global_vwap"].pct_change()
+df["rolling_vol"] = df["return_1s"].rolling(60).std()
+df["rolling_momentum"] = df["global_vwap"].pct_change(30)
 
 # =====================================================
-# PRICE CHART
+# CHART 1 VWAP
 # =====================================================
 
-st.header("1. BTC Price")
+st.header("1. Global VWAP")
+fig = px.line(df, x="bucket", y="global_vwap")
+st.plotly_chart(fig, use_container_width=True)
 
-fig = px.line(
-    df,
-    x="timestamp",
-    y="price"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.markdown("""
-### Erklärung
-
-Dieser Chart zeigt die simulierte Preisentwicklung.
-
-Später wird hier dein echter globaler VWAP stehen.
-""")
+st.markdown("VWAP zeigt den volumengewichteten Bitcoin Preis über alle Exchanges.")
 
 # =====================================================
-# MOMENTUM
+# CHART 2 MOMENTUM
 # =====================================================
 
 st.header("2. Momentum")
+fig = px.line(df, x="bucket", y="rolling_momentum")
+st.plotly_chart(fig, use_container_width=True)
 
-fig = px.line(
-    df,
-    x="timestamp",
-    y="momentum_30s"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.markdown("""
-### Erklärung
-
-Momentum misst kurzfristige Trendbewegungen.
-
-Positive Werte bedeuten Aufwärtsbewegung.
-""")
+st.markdown("Momentum zeigt kurzfristige Trendbewegungen.")
 
 # =====================================================
-# VOLATILITY
+# CHART 3 VOLATILITY
 # =====================================================
 
 st.header("3. Volatility")
+fig = px.line(df, x="bucket", y="rolling_vol")
+st.plotly_chart(fig, use_container_width=True)
 
-fig = px.line(
-    df,
-    x="timestamp",
-    y="volatility_60s"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
-
-st.markdown("""
-### Erklärung
-
-Volatilität misst kurzfristige Unsicherheit.
-""")
+st.markdown("Volatilität zeigt Unsicherheit im Markt.")
 
 # =====================================================
-# PROBABILITY ANALYSIS
+# CHART 4 RETURNS
 # =====================================================
 
-st.header("4. Probability of Future Up Move")
+st.header("4. Return Distribution")
+fig = px.histogram(df, x="return_1s", nbins=200)
+st.plotly_chart(fig, use_container_width=True)
 
-df["momentum_bucket"] = pd.cut(
-    df["momentum_30s"].fillna(0),
+st.markdown("Verteilung der kurzfristigen Preisbewegungen.")
+
+# =====================================================
+# CHART 5 FIXED PROBABILITY (NO INTERVAL BUG)
+# =====================================================
+
+st.header("5. Momentum vs Future Direction Probability")
+
+future = df["global_vwap"].shift(-300) / df["global_vwap"] - 1
+
+df["future_up"] = (future > 0).astype(int)
+
+# FIX: no pd.qcut intervals used for plotting
+
+df["momentum_bin"] = pd.cut(
+    df["rolling_momentum"].fillna(0),
     bins=10
 ).astype(str)
 
-prob = (
-    df.groupby("momentum_bucket")["future_up"]
-    .mean()
-    .reset_index()
-)
+prob = df.groupby("momentum_bin")["future_up"].mean().reset_index()
+prob.columns = ["momentum_bin", "prob_up"]
 
-fig = px.bar(
-    prob,
-    x="momentum_bucket",
-    y="future_up"
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True
-)
+fig = px.bar(prob, x="momentum_bin", y="prob_up")
+st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("""
-### Erklärung
-
-Dieser Chart zeigt:
-
-Wie verändert Momentum die Wahrscheinlichkeit,
-dass der Preis in 5 Minuten höher ist?
+Zeigt die Wahrscheinlichkeit, dass der Preis in 5 Minuten höher ist,
+abhängig vom aktuellen Momentum.
 """)
+
+# =====================================================
+# CHART 6
+# =====================================================
+
+st.header("6. Intraday Volatility Pattern")
+
+df["hour"] = df["bucket"].dt.hour
+hourly = df.groupby("hour")["rolling_vol"].mean().reset_index()
+
+fig = px.line(hourly, x="hour", y="rolling_vol")
+st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("Zeigt Tageszeitabhängigkeit der Volatilität.")
 
 # =====================================================
 # SUMMARY
 # =====================================================
 
 st.header("Summary")
-
 st.markdown("""
-Nächster Schritt:
+Wichtige Fragen:
+- Gibt es Momentum?
+- Gibt es Mean Reversion?
+- Ist Volatilität regimeabhängig?
 
-- echte Daten einladen
-- Features erweitern
-- probabilistischen Predictor bauen
+Dieses Dashboard ist die Grundlage für dein 5-Minuten Prognosemodell.
 """)
+
