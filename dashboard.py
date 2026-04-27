@@ -49,7 +49,7 @@ und werden auf 1-Sekunden-Bars aggregiert.
 def load_data():
 
     df = pd.read_parquet(
-        "crypto_dataset/binance_btc_1s_90d.parquet"
+        "crypto_dataset/binance_btc_1s_30d.parquet"
     )
 
     return df
@@ -64,14 +64,14 @@ df = load_data()
 st.header("Dataset Download")
 
 with open(
-    "crypto_dataset/binance_btc_1s_90d.parquet",
+    "crypto_dataset/binance_btc_1s_30d.parquet",
     "rb"
 ) as f:
 
     st.download_button(
         label="Download Parquet Dataset",
         data=f,
-        file_name="binance_btc_1s_90d.parquet",
+        file_name="binance_btc_1s_30d.parquet",
         mime="application/octet-stream"
     )
 
