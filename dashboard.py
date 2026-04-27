@@ -21,8 +21,4 @@ fig = px.line(df, x="x", y="y")
 
 st.plotly_chart(fig, use_container_width=True)
 
-st.write("Test chart loaded successfully.")import streamlit as st
-
-st.title("BTC Dashboard")
-
-st.write("It works 🚀")
+st.write("Test chart loaded successfully.")
